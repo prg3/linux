@@ -1223,6 +1223,67 @@ static const struct file_operations proc_oom_score_adj_operations = {
 	.llseek		= default_llseek,
 };
 
+static ssize_t oom_invulnerable_read(struct file *file, char __user *buf,
+                                        size_t count, loff_t *ppos)
+{
+	struct task_struct *task = get_proc_task(file_inode(file));
+	char buffer[PROC_NUMBUF];
+	short oom_score_adj = OOM_SCORE_ADJ_MIN;
+	short oom_invulnerable = 0;
+	unsigned long flags;
+	size_t len;
+
+	if (!task)
+		return -ESRCH;
+	if (lock_task_sighand(task, &flags)) {
+		oom_score_adj = task->signal->oom_score_adj;
+		unlock_task_sighand(task, &flags);
+	}
+	if ( oom_score_adj == -1000 ) {
+		oom_invulnerable = 1;
+	}
+	put_task_struct(task);
+	len = snprintf(buffer, sizeof(buffer), "%hd\n", oom_invulnerable);
+	return simple_read_from_buffer(buf, count, ppos, buffer, len);
+
+};
+
+static ssize_t oom_invulnerable_write(struct file *file, const char __user *buf,
+					size_t count, loff_t *ppos)
+{
+	int err = 0;
+	int invuln_value = -1000;
+	struct task_struct *task;
+	
+	// printk("buf : %i\n", *buf);
+	task = get_proc_task(file_inode(file));
+	if (!task) {
+		err = -ESRCH;
+		goto out;
+	}
+
+	if ( *buf == 48 ) {
+		// printk("Buffer was 0\n");
+		return oom_score_adj_write(file, buf, count, ppos);
+	} else if ( *buf == 49 ) {
+		// printk("Buffer was 1\n");
+		task->signal->oom_score_adj = (short)invuln_value;
+		trace_oom_score_adj_update(task);
+	} else {
+		// printk("Invalid value for oom_invulnerable\n");
+		err = -EINVAL;
+		return err < 0 ? err : count;
+	}
+out:
+	return err < 0 ? err : count;
+};
+
+static const struct file_operations proc_oom_invulnerable_operations = {
+	.read		= oom_invulnerable_read,
+	.write		= oom_invulnerable_write,
+	.llseek		= default_llseek,
+};
+
 #ifdef CONFIG_AUDITSYSCALL
 #define TMPBUFLEN 21
 static ssize_t proc_loginuid_read(struct file * file, char __user * buf,
@@ -2880,6 +2941,7 @@ static const struct pid_entry tgid_base_stuff[] = {
 	ONE("oom_score",  S_IRUGO, proc_oom_score),
 	REG("oom_adj",    S_IRUGO|S_IWUSR, proc_oom_adj_operations),
 	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_invulnerable", S_IRUGO|S_IWUSR, proc_oom_invulnerable_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",   S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
@@ -3269,6 +3331,7 @@ static const struct pid_entry tid_base_stuff[] = {
 	ONE("oom_score", S_IRUGO, proc_oom_score),
 	REG("oom_adj",   S_IRUGO|S_IWUSR, proc_oom_adj_operations),
 	REG("oom_score_adj", S_IRUGO|S_IWUSR, proc_oom_score_adj_operations),
+	REG("oom_invulnerable", S_IRUGO|S_IWUSR, proc_oom_invulnerable_operations),
 #ifdef CONFIG_AUDITSYSCALL
 	REG("loginuid",  S_IWUSR|S_IRUGO, proc_loginuid_operations),
 	REG("sessionid",  S_IRUGO, proc_sessionid_operations),
